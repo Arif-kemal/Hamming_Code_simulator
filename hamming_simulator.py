@@ -220,8 +220,21 @@ class HammingSimulator:
                  fg=self.colors["subtext"],
                  bg=self.colors["panel"]).pack(pady=(6, 2))
 
-        self.hamming_display = tk.Frame(parent, bg=self.colors["panel"])
-        self.hamming_display.pack(pady=4, padx=10)
+        # Kaydırmalı Hamming display
+        hd_outer = tk.Frame(parent, bg=self.colors["panel"])
+        hd_outer.pack(pady=4, padx=10, fill="x")
+        hd_hscroll = tk.Scrollbar(hd_outer, orient="horizontal")
+        hd_hscroll.pack(side="bottom", fill="x")
+        hd_canvas = tk.Canvas(hd_outer, height=52,
+                              bg=self.colors["panel"],
+                              highlightthickness=0,
+                              xscrollcommand=hd_hscroll.set)
+        hd_canvas.pack(side="top", fill="x")
+        hd_hscroll.config(command=hd_canvas.xview)
+        self.hamming_display = tk.Frame(hd_canvas, bg=self.colors["panel"])
+        hd_canvas.create_window((0, 0), window=self.hamming_display, anchor="nw")
+        self.hamming_display.bind("<Configure>",
+            lambda e: hd_canvas.configure(scrollregion=hd_canvas.bbox("all")))
 
         # ── Parity adım adım butonu ──
         tk.Button(parent,
@@ -262,9 +275,21 @@ class HammingSimulator:
                  bg=self.colors["panel"],
                  justify="center").pack(pady=(0, 6))
 
-        # Tıklanabilir bit butonları
-        self.bit_frame = tk.Frame(parent, bg=self.colors["panel"])
-        self.bit_frame.pack(pady=4, padx=10)
+        # Kaydırmalı bellek bit alanı
+        bf_outer = tk.Frame(parent, bg=self.colors["panel"])
+        bf_outer.pack(pady=4, padx=10, fill="x")
+        bf_hscroll = tk.Scrollbar(bf_outer, orient="horizontal")
+        bf_hscroll.pack(side="bottom", fill="x")
+        bf_canvas = tk.Canvas(bf_outer, height=62,
+                              bg=self.colors["panel"],
+                              highlightthickness=0,
+                              xscrollcommand=bf_hscroll.set)
+        bf_canvas.pack(side="top", fill="x")
+        bf_hscroll.config(command=bf_canvas.xview)
+        self.bit_frame = tk.Frame(bf_canvas, bg=self.colors["panel"])
+        bf_canvas.create_window((0, 0), window=self.bit_frame, anchor="nw")
+        self.bit_frame.bind("<Configure>",
+            lambda e: bf_canvas.configure(scrollregion=bf_canvas.bbox("all")))
 
         # Sendrom & düzelt butonları
         btn_row = tk.Frame(parent, bg=self.colors["panel"])
