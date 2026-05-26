@@ -1,734 +1,1008 @@
 import tkinter as tk
 from tkinter import messagebox
 
-# ─────────────────────────────────────────
-#  HAMMING KODU HESAPLAMA FONKSİYONLARI
-# ─────────────────────────────────────────
+# ============================================================
+#   HAMMING KODU - TEMEL ALGORITMA FONKSIYONLARI
+#   Bu bolumde hicbir arayuz kodu yok.
+#   Sadece matematiksel hesaplamalar var.
+# ============================================================
 
-def calculate_parity_bits(m):
-    """Kaç tane parity biti gerektiğini hesapla"""
+def kac_parity_biti_gerekir(veri_bit_sayisi):
+    """
+    Verilen veri bit sayisi icin kac tane parity (kontrol) biti
+    gerektigini hesaplar.
+
+    Kural: 2^r  >=  veri_bit_sayisi + r + 1
+    r yi 0 dan baslayip bu kural saglanana kadar arttiririz.
+
+    Ornek: 8 bitlik veri icin r=4 parity biti gerekir.
+    """
     r = 0
-    while (2 ** r) < (m + r + 1):
+    while (2 ** r) < (veri_bit_sayisi + r + 1):
         r += 1
     return r
 
-def encode_hamming(data_bits):
-    """Veriyi Hamming koduna çevir"""
-    m = len(data_bits)
-    r = calculate_parity_bits(m)
-    n = m + r  # toplam bit sayısı
 
-    # Pozisyonları yerleştir (1'den başlar)
-    hamming = [0] * (n + 1)  # index 0 kullanılmayacak
+def parity_pozisyonlarini_bul(toplam_bit_sayisi):
+    """
+    Hamming kodunda parity bitleri 1, 2, 4, 8, 16 ... gibi
+    2'nin kuvveti olan pozisyonlara yerlestirilir.
 
-    # Veri bitlerini yerleştir (parity pozisyonları hariç)
-    j = 0
-    for i in range(1, n + 1):
-        if i & (i - 1) != 0:  # 2'nin kuvveti değilse → veri biti
-            hamming[i] = int(data_bits[j])
-            j += 1
+    Bu fonksiyon o pozisyonlarin listesini dondurur.
+    Ornek: toplam 12 bit icin -> [1, 2, 4, 8]
+    """
+    pozisyonlar = []
+    i = 1
+    while i <= toplam_bit_sayisi:
+        pozisyonlar.append(i)
+        i *= 2  # her seferinde 2 ile carp: 1->2->4->8->...
+    return pozisyonlar
 
-    # Parity bitlerini hesapla
-    for i in range(r):
-        pos = 2 ** i
-        parity = 0
-        for k in range(1, n + 1):
-            if k & pos:
-                parity ^= hamming[k]
-        hamming[pos] = parity
 
-    return hamming[1:]  # index 1'den başlayarak döndür
+def hamming_encode(veri_bitleri):
+    """
+    Kullanicinin girdigi ikili veriyi Hamming koduna donusturur.
 
-def calculate_syndrome(received):
-    """Sendromu hesapla → hatalı bit pozisyonu"""
-    n = len(received)
+    Adimlar:
+    1) Kac parity biti gerektigini hesapla
+    2) Bos bir dizi olustur (toplam uzunluk = veri + parity)
+    3) Veri bitlerini parity olmayan pozisyonlara yerlestir
+    4) Her parity bitini XOR ile hesapla
+    """
+
+    # --- Adim 1: Boyutlari hesapla ---
+    veri_uzunlugu = len(veri_bitleri)
+    parity_sayisi = kac_parity_biti_gerekir(veri_uzunlugu)
+    toplam_uzunluk = veri_uzunlugu + parity_sayisi
+
+    # --- Adim 2: Bos dizi olustur (index 0 kullanilmayacak, 1'den baslar) ---
+    # Neden +1? Cunku pozisyonlar 1'den basliyor, 0 indeksi bos birakiyoruz.
+    hamming_dizisi = [0] * (toplam_uzunluk + 1)
+
+    # --- Adim 3: Veri bitlerini dogru pozisyonlara yerlestir ---
+    # Parity pozisyonlari (1,2,4,8...) bos kalacak, diger pozisyonlara veri gidecek
+    veri_indeksi = 0
+    for pozisyon in range(1, toplam_uzunluk + 1):
+        # Eger bu pozisyon 2'nin kuvveti ise -> parity yeri, atliyoruz
+        # 2'nin kuvveti kontrolu: sayi & (sayi-1) == 0 ise 2'nin kuvvetidir
+        if pozisyon & (pozisyon - 1) != 0:
+            # 2'nin kuvveti degil -> buraya veri biti gidecek
+            hamming_dizisi[pozisyon] = int(veri_bitleri[veri_indeksi])
+            veri_indeksi += 1
+
+    # --- Adim 4: Her parity bitini hesapla ---
+    # Her parity biti, belirli pozisyonlarin XOR'u olacak
+    for i in range(parity_sayisi):
+        parity_pos = 2 ** i  # 1, 2, 4, 8, ...
+
+        xor_sonucu = 0
+        for k in range(1, toplam_uzunluk + 1):
+            # Bu pozisyon bu parity bitini etkiliyor mu?
+            # Kural: pozisyon & parity_pos != 0 ise etkileniyor
+            if k & parity_pos:
+                xor_sonucu ^= hamming_dizisi[k]  # XOR ile birlestir
+
+        hamming_dizisi[parity_pos] = xor_sonucu  # hesaplanan parity'yi yerlestir
+
+    # Index 0'i atarak 1'den itibaren dondur
+    return hamming_dizisi[1:]
+
+
+def sendrom_hesapla(alinan_bitler):
+    """
+    Alinan (bellekteki) Hamming kodunun sendromunu hesaplar.
+    Sendrom = hatanin oldugu pozisyon numarasi.
+
+    Sendrom == 0 ise hata yok.
+    Sendrom != 0 ise o numarali pozisyonda hata var.
+
+    Nasil calisir:
+    Her parity biti kendi sorumlu oldugu pozisyonlarin XOR'unu kontrol eder.
+    Eger XOR sonucu 0 degilse, o parity biti bozuk -> sendroma katkida bulunur.
+    """
+    toplam_uzunluk = len(alinan_bitler)
+
+    # Kac parity biti oldugunu bul
     r = 0
-    while (2 ** r) < n + 1:
+    while (2 ** r) < toplam_uzunluk + 1:
         r += 1
 
-    syndrome = 0
+    sendrom = 0
     for i in range(r):
-        pos = 2 ** i
-        parity = 0
-        for k in range(1, n + 1):
-            if k & pos:
-                parity ^= received[k - 1]
-        if parity != 0:
-            syndrome += pos
+        parity_pos = 2 ** i  # 1, 2, 4, 8, ...
 
-    return syndrome
+        xor_sonucu = 0
+        for k in range(1, toplam_uzunluk + 1):
+            if k & parity_pos:
+                xor_sonucu ^= alinan_bitler[k - 1]  # dizi 0'dan baslar, -1 yapiyoruz
 
-def correct_error(received, error_pos):
-    """Hatalı biti düzelt"""
-    corrected = received[:]
-    if 0 < error_pos <= len(corrected):
-        corrected[error_pos - 1] ^= 1  # biti tersine çevir
-    return corrected
+        # Bu parity bitti hatali cikti ise sendroma parity pozisyonunu ekle
+        if xor_sonucu != 0:
+            sendrom += parity_pos
 
-def get_parity_positions(n):
-    """Parity bit pozisyonlarını döndür"""
-    positions = []
-    i = 1
-    while i <= n:
-        positions.append(i)
-        i *= 2
-    return positions
+    return sendrom  # 0 ise hata yok, diger degerler hatanin pozisyonunu gosterir
 
 
-# ─────────────────────────────────────────
-#  ANA UYGULAMA SINIFI
-# ─────────────────────────────────────────
+def hatayi_duzelt(bitler, hatali_pozisyon):
+    """
+    Verilen pozisyondaki biti tersine cevirir (0->1 veya 1->0).
+    Bu isleme 'bit flip' denir.
+    """
+    duzeltilmis = bitler[:]  # kopya al, orijinali bozma
 
-class HammingSimulator:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Hamming Error-Correcting Code Simülatörü")
-        self.root.geometry("950x750")
-        self.root.configure(bg="#1a1a2e")
-        self.root.resizable(True, True)
+    if 0 < hatali_pozisyon <= len(duzeltilmis):
+        # XOR ile 1: biti tersine cevirir (0 XOR 1 = 1,  1 XOR 1 = 0)
+        duzeltilmis[hatali_pozisyon - 1] ^= 1
 
-        # Renk paleti
-        self.colors = {
-            "bg":         "#1a1a2e",
-            "panel":      "#16213e",
-            "accent":     "#0f3460",
-            "highlight":  "#e94560",
-            "green":      "#00b894",
-            "yellow":     "#fdcb6e",
-            "text":       "#eaeaea",
-            "subtext":    "#a0a0b0",
-            "parity_bg":  "#2d1b4e",
-            "data_bg":    "#1b3a4e",
-            "error_bg":   "#4e1b1b",
+    return duzeltilmis
+
+
+# ============================================================
+#   ARAYUZ SINIFI - HammingSimulatoru
+#   Tkinter ile gorsellestirme burada yapiliyor.
+#   Tum buton, etiket, cerceve islemleri bu sinifin icinde.
+# ============================================================
+
+class HammingSimulatoru:
+
+    def __init__(self, ana_pencere):
+        """
+        Uygulama ilk acildiginda bu fonksiyon calisir.
+        Degiskenleri sifirlar ve arayuzu kurar.
+        """
+        self.pencere = ana_pencere
+        self.pencere.title("Hamming Hata Duzeltme Simulatoru")
+        self.pencere.geometry("950x750")
+        self.pencere.configure(bg="#1a1a2e")
+        self.pencere.resizable(True, True)
+
+        # --- Renk tanimi ---
+        # Tum renkler burada tanimli, kod icinde tekrar tekrar yazmiyoruz
+        self.renkler = {
+            "arkaplan":       "#1a1a2e",   # koyu lacivert - genel arka plan
+            "panel":          "#16213e",   # biraz daha acik panel rengi
+            "vurgu":          "#0f3460",   # mavi ton - giris kutulari vb.
+            "hata_rengi":     "#e94560",   # kirmizi - hata gostergesi
+            "yesil":          "#00b894",   # yesil - basarili islem
+            "sari":           "#fdcb6e",   # sari - uyari / parity bitleri
+            "yazi":           "#eaeaea",   # beyaza yakin - normal yazi
+            "alt_yazi":       "#a0a0b0",   # gri - ikincil bilgiler
+            "parity_arka":    "#2d1b4e",   # mor ton - parity bit kutulari
+            "veri_arka":      "#1b3a4e",   # mavi ton - veri bit kutulari
+            "hata_arka":      "#4e1b1b",   # koyu kirmizi - hatali bit kutusu
         }
 
-        self.memory = []          # bellekteki Hamming kodlu veri
-        self.original_data = ""   # kullanıcının girdiği orijinal veri
-        self.bit_buttons = []     # bit toggle butonları
-        self.current_bits = 8
+        # --- Uygulama degiskenleri ---
+        self.bellekteki_bitler = []    # encode sonrasi bellekte duran hamming kodu
+        self.orijinal_veri = ""        # kullanicinin girdigi ham veri (sadece 0 ve 1)
+        self.bit_butonlari = []        # bellekteki her bite karsilik gelen buton listesi
 
-        self._build_ui()
+        # --- Arayuzu kur ---
+        self.arayuz_kur()
 
-    # ── ARAYÜZ KURULUMU ────────────────────
 
-    def _build_ui(self):
-        # Başlık
-        title_frame = tk.Frame(self.root, bg=self.colors["bg"])
-        title_frame.pack(fill="x", padx=20, pady=(15, 5))
+    # ============================================================
+    #   ARAYUZ KURULUM FONKSIYONLARI
+    #   _arayuz_kur cagrildiginda tum cerceveler olusturulur.
+    # ============================================================
 
-        tk.Label(title_frame,
-                 text="⚡ Hamming Error-Correcting Code Simülatörü",
+    def arayuz_kur(self):
+        """
+        Ana pencereyi bolgelere ayirir:
+        - Ust: baslik
+        - Orta sol: giris ve encode paneli
+        - Orta sag: bellek / hata / duzeltme paneli
+        - Alt: islem kayitlari (log)
+        """
+
+        # --- Baslik bolumu ---
+        baslik_cerceve = tk.Frame(self.pencere, bg=self.renkler["arkaplan"])
+        baslik_cerceve.pack(fill="x", padx=20, pady=(15, 5))
+
+        tk.Label(baslik_cerceve,
+                 text="Hamming Hata Duzeltme Kodu Simulatoru",
                  font=("Consolas", 18, "bold"),
-                 fg=self.colors["highlight"],
-                 bg=self.colors["bg"]).pack()
+                 fg=self.renkler["hata_rengi"],
+                 bg=self.renkler["arkaplan"]).pack()
 
-        tk.Label(title_frame,
+        tk.Label(baslik_cerceve,
                  text="BLM230 Bilgisayar Mimarisi",
                  font=("Consolas", 10),
-                 fg=self.colors["subtext"],
-                 bg=self.colors["bg"]).pack()
+                 fg=self.renkler["alt_yazi"],
+                 bg=self.renkler["arkaplan"]).pack()
 
-        # Ana çerçeve
-        main = tk.Frame(self.root, bg=self.colors["bg"])
-        main.pack(fill="both", expand=True, padx=20, pady=5)
+        # --- Orta bolum: iki panel yan yana ---
+        orta_cerceve = tk.Frame(self.pencere, bg=self.renkler["arkaplan"])
+        orta_cerceve.pack(fill="both", expand=True, padx=20, pady=5)
 
-        # Sol panel (giriş + encode)
-        left = tk.Frame(main, bg=self.colors["panel"],
-                        relief="ridge", bd=2)
-        left.pack(side="left", fill="both", expand=True, padx=(0, 8))
+        # Sol panel: veri girisi ve encode
+        sol_panel = tk.Frame(orta_cerceve,
+                             bg=self.renkler["panel"],
+                             relief="ridge", bd=2)
+        sol_panel.pack(side="left", fill="both", expand=True, padx=(0, 8))
 
-        # Sağ panel (bellek + hata + düzeltme)
-        right = tk.Frame(main, bg=self.colors["panel"],
-                         relief="ridge", bd=2)
-        right.pack(side="left", fill="both", expand=True)
+        # Sag panel: bellek goruntuleme, hata tespiti, duzeltme
+        sag_panel = tk.Frame(orta_cerceve,
+                             bg=self.renkler["panel"],
+                             relief="ridge", bd=2)
+        sag_panel.pack(side="left", fill="both", expand=True)
 
-        self._build_input_panel(left)
-        self._build_memory_panel(right)
+        # Her panelin icini doldur
+        self.giris_paneli_kur(sol_panel)
+        self.bellek_paneli_kur(sag_panel)
 
-        # Log alanı
-        self._build_log_area()
+        # --- Alt bolum: log alani ---
+        self.log_alani_kur()
 
-    def _build_input_panel(self, parent):
-        tk.Label(parent, text="📥  VERİ GİRİŞİ & ENCODE",
+
+    def giris_paneli_kur(self, ust_cerceve):
+        """
+        Sol paneli doldurur:
+        - Bit boyutu secimi (8 / 16 / 32)
+        - Veri giris kutusu
+        - Encode butonu
+        - Hamming kodu gosterimi
+        - Parity adim adim butonu
+        """
+
+        tk.Label(ust_cerceve,
+                 text="Veri Girisi ve Encode",
                  font=("Consolas", 12, "bold"),
-                 fg=self.colors["green"],
-                 bg=self.colors["panel"]).pack(pady=(12, 4))
+                 fg=self.renkler["yesil"],
+                 bg=self.renkler["panel"]).pack(pady=(12, 4))
 
-        # Bit boyutu seçimi
-        bit_frame = tk.Frame(parent, bg=self.colors["panel"])
-        bit_frame.pack(pady=4)
+        # --- Bit boyutu secimi ---
+        # Kullanici 8, 16 veya 32 bitlik veri girebilir
+        bit_secim_cerceve = tk.Frame(ust_cerceve, bg=self.renkler["panel"])
+        bit_secim_cerceve.pack(pady=4)
 
-        tk.Label(bit_frame, text="Bit Boyutu:",
+        tk.Label(bit_secim_cerceve,
+                 text="Bit Boyutu:",
                  font=("Consolas", 10),
-                 fg=self.colors["text"],
-                 bg=self.colors["panel"]).pack(side="left", padx=4)
+                 fg=self.renkler["yazi"],
+                 bg=self.renkler["panel"]).pack(side="left", padx=4)
 
-        self.bit_var = tk.IntVar(value=8)
-        for val in [8, 16, 32]:
-            rb = tk.Radiobutton(bit_frame, text=f"{val} bit",
-                                variable=self.bit_var, value=val,
+        self.bit_degiskeni = tk.IntVar(value=8)  # varsayilan 8 bit
+
+        for deger in [8, 16, 32]:
+            rb = tk.Radiobutton(bit_secim_cerceve,
+                                text=f"{deger} bit",
+                                variable=self.bit_degiskeni,
+                                value=deger,
                                 font=("Consolas", 10),
-                                fg=self.colors["text"],
-                                bg=self.colors["panel"],
-                                selectcolor=self.colors["accent"],
-                                activebackground=self.colors["panel"],
-                                command=self._on_bit_change)
+                                fg=self.renkler["yazi"],
+                                bg=self.renkler["panel"],
+                                selectcolor=self.renkler["vurgu"],
+                                activebackground=self.renkler["panel"],
+                                command=self.bit_degistiginde)
             rb.pack(side="left", padx=6)
 
-        # Veri giriş kutusu
-        tk.Label(parent,
-                 text="İkili Veri Girin (sadece 0 ve 1):",
+        # --- Veri giris kutusu ---
+        tk.Label(ust_cerceve,
+                 text="Ikili Veri Girin (sadece 0 ve 1):",
                  font=("Consolas", 10),
-                 fg=self.colors["subtext"],
-                 bg=self.colors["panel"]).pack(pady=(8, 2))
+                 fg=self.renkler["alt_yazi"],
+                 bg=self.renkler["panel"]).pack(pady=(8, 2))
 
-        entry_frame = tk.Frame(parent, bg=self.colors["panel"])
-        entry_frame.pack(pady=2)
+        giris_satiri = tk.Frame(ust_cerceve, bg=self.renkler["panel"])
+        giris_satiri.pack(pady=2)
 
-        self.data_entry = tk.Entry(entry_frame,
-                                   width=36,
-                                   font=("Consolas", 13),
-                                   bg=self.colors["accent"],
-                                   fg=self.colors["green"],
-                                   insertbackground=self.colors["green"],
-                                   relief="flat", bd=4)
-        self.data_entry.pack(side="left", padx=4)
-        self.data_entry.bind("<KeyRelease>", self._validate_input)
+        self.veri_girisi = tk.Entry(giris_satiri,
+                                    width=36,
+                                    font=("Consolas", 13),
+                                    bg=self.renkler["vurgu"],
+                                    fg=self.renkler["yesil"],
+                                    insertbackground=self.renkler["yesil"],
+                                    relief="flat", bd=4)
+        self.veri_girisi.pack(side="left", padx=4)
+        # Her tus basiminda girisi kontrol et (sadece 0 ve 1 kabul et)
+        self.veri_girisi.bind("<KeyRelease>", self.girisi_dogrula)
 
-        self.len_label = tk.Label(entry_frame,
-                                  text="0/8",
-                                  font=("Consolas", 10),
-                                  fg=self.colors["subtext"],
-                                  bg=self.colors["panel"])
-        self.len_label.pack(side="left")
+        # Kac karakter girildi gostergesi (ornek: "5/8")
+        self.uzunluk_etiketi = tk.Label(giris_satiri,
+                                         text="0/8",
+                                         font=("Consolas", 10),
+                                         fg=self.renkler["alt_yazi"],
+                                         bg=self.renkler["panel"])
+        self.uzunluk_etiketi.pack(side="left")
 
-        # Encode butonu
-        tk.Button(parent,
-                  text="🔐  ENCODE & BELLEĞE YAZ",
+        # --- Encode butonu ---
+        tk.Button(ust_cerceve,
+                  text="ENCODE ET ve BELLEGE YAZ",
                   font=("Consolas", 11, "bold"),
-                  bg=self.colors["green"],
+                  bg=self.renkler["yesil"],
                   fg="#000000",
                   activebackground="#00a381",
                   relief="flat", bd=0,
                   padx=12, pady=6,
                   cursor="hand2",
-                  command=self._encode).pack(pady=10)
+                  command=self.encode_et).pack(pady=10)
 
-        # Hamming kodu gösterimi
-        tk.Label(parent, text="Hamming Kodu (Bellekteki Veri):",
+        # --- Hamming kodu gostergesi ---
+        # Encode sonrasi olusturulan hamming kodunu renkli kutularda gosterir
+        tk.Label(ust_cerceve,
+                 text="Hamming Kodu (Bellege Yazilan):",
                  font=("Consolas", 10),
-                 fg=self.colors["subtext"],
-                 bg=self.colors["panel"]).pack(pady=(6, 2))
+                 fg=self.renkler["alt_yazi"],
+                 bg=self.renkler["panel"]).pack(pady=(6, 2))
 
-        # Kaydırmalı Hamming display
-        hd_outer = tk.Frame(parent, bg=self.colors["panel"])
-        hd_outer.pack(pady=4, padx=10, fill="x")
-        hd_hscroll = tk.Scrollbar(hd_outer, orient="horizontal")
-        hd_hscroll.pack(side="bottom", fill="x")
-        hd_canvas = tk.Canvas(hd_outer, height=52,
-                              bg=self.colors["panel"],
-                              highlightthickness=0,
-                              xscrollcommand=hd_hscroll.set)
-        hd_canvas.pack(side="top", fill="x")
-        hd_hscroll.config(command=hd_canvas.xview)
-        self.hamming_display = tk.Frame(hd_canvas, bg=self.colors["panel"])
-        hd_canvas.create_window((0, 0), window=self.hamming_display, anchor="nw")
-        self.hamming_display.bind("<Configure>",
-            lambda e: hd_canvas.configure(scrollregion=hd_canvas.bbox("all")))
+        # Yatay kaydirma destekli alan (uzun kodlar icin)
+        hamming_dis = tk.Frame(ust_cerceve, bg=self.renkler["panel"])
+        hamming_dis.pack(pady=4, padx=10, fill="x")
 
-        # ── Parity adım adım butonu ──
-        tk.Button(parent,
-                  text="🔎  PARITY HESABINI GÖSTER",
+        hamming_kaydirma = tk.Scrollbar(hamming_dis, orient="horizontal")
+        hamming_kaydirma.pack(side="bottom", fill="x")
+
+        hamming_tuval = tk.Canvas(hamming_dis, height=52,
+                                   bg=self.renkler["panel"],
+                                   highlightthickness=0,
+                                   xscrollcommand=hamming_kaydirma.set)
+        hamming_tuval.pack(side="top", fill="x")
+        hamming_kaydirma.config(command=hamming_tuval.xview)
+
+        # Canvas icine bir Frame koyduk, bit kutulari buraya eklenecek
+        self.hamming_gosterge = tk.Frame(hamming_tuval, bg=self.renkler["panel"])
+        hamming_tuval.create_window((0, 0), window=self.hamming_gosterge, anchor="nw")
+        self.hamming_gosterge.bind("<Configure>",
+            lambda e: hamming_tuval.configure(scrollregion=hamming_tuval.bbox("all")))
+
+        # --- Parity adim adim gosterme butonu ---
+        tk.Button(ust_cerceve,
+                  text="PARITY HESABINI ADIM ADIM GOSTER",
                   font=("Consolas", 10, "bold"),
-                  bg=self.colors["accent"],
-                  fg=self.colors["yellow"],
+                  bg=self.renkler["vurgu"],
+                  fg=self.renkler["sari"],
                   activebackground="#1a4a7a",
                   relief="flat", bd=0,
                   padx=10, pady=5,
                   cursor="hand2",
-                  command=self._show_parity_steps).pack(pady=(4, 2))
+                  command=self.parity_adimlarini_goster).pack(pady=(4, 2))
 
-        # Legend
-        legend = tk.Frame(parent, bg=self.colors["panel"])
-        legend.pack(pady=(2, 8))
-        for color, label in [(self.colors["parity_bg"], "Parity Biti"),
-                              (self.colors["data_bg"],   "Veri Biti")]:
-            f = tk.Frame(legend, bg=color, width=14, height=14,
-                         relief="flat")
-            f.pack(side="left", padx=3)
-            tk.Label(legend, text=label,
+        # --- Renk aciklamasi (legend) ---
+        aciklama = tk.Frame(ust_cerceve, bg=self.renkler["panel"])
+        aciklama.pack(pady=(2, 8))
+
+        for renk, etiket in [(self.renkler["parity_arka"], "Parity Biti"),
+                              (self.renkler["veri_arka"],  "Veri Biti")]:
+            kare = tk.Frame(aciklama, bg=renk, width=14, height=14)
+            kare.pack(side="left", padx=3)
+            tk.Label(aciklama, text=etiket,
                      font=("Consolas", 8),
-                     fg=self.colors["subtext"],
-                     bg=self.colors["panel"]).pack(side="left", padx=(0, 8))
+                     fg=self.renkler["alt_yazi"],
+                     bg=self.renkler["panel"]).pack(side="left", padx=(0, 8))
 
-    def _build_memory_panel(self, parent):
-        tk.Label(parent, text="💾  BELLEK / HATA / DÜZELTME",
+
+    def bellek_paneli_kur(self, ust_cerceve):
+        """
+        Sag paneli doldurur:
+        - Tıklanabilir bellek bitleri (hata olusturmak icin)
+        - Sendrom hesapla butonu
+        - Hatay duzelt butonu
+        - Sonuc etiketi
+        - Karsilastirma tablosu
+        """
+
+        tk.Label(ust_cerceve,
+                 text="Bellek / Hata / Duzeltme",
                  font=("Consolas", 12, "bold"),
-                 fg=self.colors["yellow"],
-                 bg=self.colors["panel"]).pack(pady=(12, 4))
+                 fg=self.renkler["sari"],
+                 bg=self.renkler["panel"]).pack(pady=(12, 4))
 
-        tk.Label(parent,
-                 text="Belleğe yazılmış veri aşağıda.\n"
-                      "Herhangi bir bite tıklayarak yapay hata oluşturabilirsiniz.",
+        tk.Label(ust_cerceve,
+                 text="Bellege yazilmis veri asagida.\n"
+                      "Herhangi bir bite tikla -> o bit bozulur (yapay hata).",
                  font=("Consolas", 9),
-                 fg=self.colors["subtext"],
-                 bg=self.colors["panel"],
+                 fg=self.renkler["alt_yazi"],
+                 bg=self.renkler["panel"],
                  justify="center").pack(pady=(0, 6))
 
-        # Kaydırmalı bellek bit alanı
-        bf_outer = tk.Frame(parent, bg=self.colors["panel"])
-        bf_outer.pack(pady=4, padx=10, fill="x")
-        bf_hscroll = tk.Scrollbar(bf_outer, orient="horizontal")
-        bf_hscroll.pack(side="bottom", fill="x")
-        bf_canvas = tk.Canvas(bf_outer, height=62,
-                              bg=self.colors["panel"],
+        # --- Tıklanabilir bit alani (kaydirmali) ---
+        bit_dis = tk.Frame(ust_cerceve, bg=self.renkler["panel"])
+        bit_dis.pack(pady=4, padx=10, fill="x")
+
+        bit_kaydirma = tk.Scrollbar(bit_dis, orient="horizontal")
+        bit_kaydirma.pack(side="bottom", fill="x")
+
+        bit_tuval = tk.Canvas(bit_dis, height=62,
+                              bg=self.renkler["panel"],
                               highlightthickness=0,
-                              xscrollcommand=bf_hscroll.set)
-        bf_canvas.pack(side="top", fill="x")
-        bf_hscroll.config(command=bf_canvas.xview)
-        self.bit_frame = tk.Frame(bf_canvas, bg=self.colors["panel"])
-        bf_canvas.create_window((0, 0), window=self.bit_frame, anchor="nw")
-        self.bit_frame.bind("<Configure>",
-            lambda e: bf_canvas.configure(scrollregion=bf_canvas.bbox("all")))
+                              xscrollcommand=bit_kaydirma.set)
+        bit_tuval.pack(side="top", fill="x")
+        bit_kaydirma.config(command=bit_tuval.xview)
 
-        # Sendrom & düzelt butonları
-        btn_row = tk.Frame(parent, bg=self.colors["panel"])
-        btn_row.pack(pady=8)
+        self.bit_alani = tk.Frame(bit_tuval, bg=self.renkler["panel"])
+        bit_tuval.create_window((0, 0), window=self.bit_alani, anchor="nw")
+        self.bit_alani.bind("<Configure>",
+            lambda e: bit_tuval.configure(scrollregion=bit_tuval.bbox("all")))
 
-        tk.Button(btn_row,
-                  text="🔍  SENDROMU HESAPLA",
+        # --- Sendrom ve duzeltme butonlari ---
+        buton_satiri = tk.Frame(ust_cerceve, bg=self.renkler["panel"])
+        buton_satiri.pack(pady=8)
+
+        tk.Button(buton_satiri,
+                  text="SENDROMU HESAPLA",
                   font=("Consolas", 10, "bold"),
-                  bg=self.colors["yellow"],
+                  bg=self.renkler["sari"],
                   fg="#000000",
                   activebackground="#e0b050",
                   relief="flat", bd=0,
                   padx=8, pady=5,
                   cursor="hand2",
-                  command=self._detect_error).pack(side="left", padx=4)
+                  command=self.hata_tespit_et).pack(side="left", padx=4)
 
-        tk.Button(btn_row,
-                  text="✅  HATAYI DÜZELT",
+        tk.Button(buton_satiri,
+                  text="HATAYI DUZELT",
                   font=("Consolas", 10, "bold"),
-                  bg=self.colors["highlight"],
+                  bg=self.renkler["hata_rengi"],
                   fg="#ffffff",
                   activebackground="#c73652",
                   relief="flat", bd=0,
                   padx=8, pady=5,
                   cursor="hand2",
-                  command=self._correct_error).pack(side="left", padx=4)
+                  command=self.hatayi_duzelt_ve_goster).pack(side="left", padx=4)
 
-        # Sonuç kutusu
-        result_frame = tk.Frame(parent, bg=self.colors["accent"],
-                                relief="ridge", bd=2)
-        result_frame.pack(fill="x", padx=14, pady=6)
+        # --- Sonuc kutusu ---
+        sonuc_cerceve = tk.Frame(ust_cerceve,
+                                  bg=self.renkler["vurgu"],
+                                  relief="ridge", bd=2)
+        sonuc_cerceve.pack(fill="x", padx=14, pady=6)
 
-        tk.Label(result_frame, text="Sonuç:",
+        tk.Label(sonuc_cerceve,
+                 text="Sonuc:",
                  font=("Consolas", 10, "bold"),
-                 fg=self.colors["subtext"],
-                 bg=self.colors["accent"]).pack(anchor="w", padx=8, pady=(6,0))
+                 fg=self.renkler["alt_yazi"],
+                 bg=self.renkler["vurgu"]).pack(anchor="w", padx=8, pady=(6, 0))
 
-        self.result_label = tk.Label(result_frame,
-                                     text="—",
-                                     font=("Consolas", 12, "bold"),
-                                     fg=self.colors["text"],
-                                     bg=self.colors["accent"],
-                                     wraplength=340,
-                                     justify="left")
-        self.result_label.pack(anchor="w", padx=8, pady=(0, 8))
+        self.sonuc_etiketi = tk.Label(sonuc_cerceve,
+                                       text="---",
+                                       font=("Consolas", 12, "bold"),
+                                       fg=self.renkler["yazi"],
+                                       bg=self.renkler["vurgu"],
+                                       wraplength=340,
+                                       justify="left")
+        self.sonuc_etiketi.pack(anchor="w", padx=8, pady=(0, 8))
 
-        # Karşılaştırma tablosu
-        tk.Label(parent, text="Veri Karşılaştırması:",
+        # --- Karsilastirma tablosu ---
+        # Encode sonrasi veya duzeltme sonrasi orijinal vs kurtarilan veri
+        tk.Label(ust_cerceve,
+                 text="Veri Karsilastirmasi:",
                  font=("Consolas", 10),
-                 fg=self.colors["subtext"],
-                 bg=self.colors["panel"]).pack(pady=(8, 2))
+                 fg=self.renkler["alt_yazi"],
+                 bg=self.renkler["panel"]).pack(pady=(8, 2))
 
-        self.compare_frame = tk.Frame(parent, bg=self.colors["panel"])
-        self.compare_frame.pack(pady=2, padx=10)
+        self.karsilastirma_alani = tk.Frame(ust_cerceve, bg=self.renkler["panel"])
+        self.karsilastirma_alani.pack(pady=2, padx=10)
 
-    def _build_log_area(self):
-        log_outer = tk.Frame(self.root, bg=self.colors["bg"])
-        log_outer.pack(fill="x", padx=20, pady=(4, 14))
 
-        tk.Label(log_outer, text="📋  İŞLEM KAYITLARI",
+    def log_alani_kur(self):
+        """
+        Ekranin en altina bir metin kutusu ekler.
+        Yapilan her islem buraya kayit olarak yazilir.
+        """
+        log_cerceve = tk.Frame(self.pencere, bg=self.renkler["arkaplan"])
+        log_cerceve.pack(fill="x", padx=20, pady=(4, 14))
+
+        tk.Label(log_cerceve,
+                 text="Islem Kayitlari",
                  font=("Consolas", 10, "bold"),
-                 fg=self.colors["subtext"],
-                 bg=self.colors["bg"]).pack(anchor="w")
+                 fg=self.renkler["alt_yazi"],
+                 bg=self.renkler["arkaplan"]).pack(anchor="w")
 
-        self.log_text = tk.Text(log_outer,
-                                height=5,
-                                font=("Consolas", 9),
-                                bg=self.colors["accent"],
-                                fg=self.colors["green"],
-                                relief="flat", bd=4,
-                                state="disabled")
-        self.log_text.pack(fill="x")
+        self.log_kutusu = tk.Text(log_cerceve,
+                                   height=5,
+                                   font=("Consolas", 9),
+                                   bg=self.renkler["vurgu"],
+                                   fg=self.renkler["yesil"],
+                                   relief="flat", bd=4,
+                                   state="disabled")   # kullanici yazamasin
+        self.log_kutusu.pack(fill="x")
 
-    # ── YARDIMCI FONKSİYONLAR ──────────────
 
-    def _log(self, msg, color=None):
-        self.log_text.configure(state="normal")
-        self.log_text.insert("end", f"▶ {msg}\n")
-        self.log_text.see("end")
-        self.log_text.configure(state="disabled")
+    # ============================================================
+    #   YARDIMCI FONKSIYONLAR
+    #   Kucuk, tekrar kullanilan islemler burada.
+    # ============================================================
 
-    def _validate_input(self, event=None):
-        val = self.data_entry.get()
-        bits = self.bit_var.get()
-        clean = ''.join(c for c in val if c in '01')
-        if clean != val:
-            self.data_entry.delete(0, "end")
-            self.data_entry.insert(0, clean)
-        self.len_label.config(text=f"{len(clean)}/{bits}")
+    def log_yaz(self, mesaj):
+        """Log kutusuna bir satir yazar."""
+        self.log_kutusu.configure(state="normal")      # once yazilabilir yap
+        self.log_kutusu.insert("end", f"> {mesaj}\n")  # sona ekle
+        self.log_kutusu.see("end")                     # en alta kaydir
+        self.log_kutusu.configure(state="disabled")    # tekrar kilitle
 
-    def _on_bit_change(self):
-        self.data_entry.delete(0, "end")
-        self.len_label.config(text=f"0/{self.bit_var.get()}")
 
-    def _clear_hamming_display(self):
-        for w in self.hamming_display.winfo_children():
-            w.destroy()
+    def girisi_dogrula(self, olay=None):
+        """
+        Kullanici giris kutusuna her karakter yazdiginda calisir.
+        Sadece 0 ve 1 karakterlerine izin verir, digerlerini siler.
+        Ayrica kac karakter girildigini gosterir.
+        """
+        girilenler = self.veri_girisi.get()
+        beklenen_bit = self.bit_degiskeni.get()
 
-    def _clear_bit_buttons(self):
-        for w in self.bit_frame.winfo_children():
-            w.destroy()
-        self.bit_buttons = []
+        # Sadece 0 ve 1 iceren karakterleri filtrele
+        temiz = ''.join(c for c in girilenler if c in '01')
 
-    def _clear_compare(self):
-        for w in self.compare_frame.winfo_children():
-            w.destroy()
+        # Eger silinmesi gereken karakter varsa girisi guncelle
+        if temiz != girilenler:
+            self.veri_girisi.delete(0, "end")
+            self.veri_girisi.insert(0, temiz)
 
-    # ── ENCODE ─────────────────────────────
+        # Sayac etiketi guncelle (ornek: "5/8")
+        self.uzunluk_etiketi.config(text=f"{len(temiz)}/{beklenen_bit}")
 
-    def _encode(self):
-        data = self.data_entry.get().strip()
-        bits = self.bit_var.get()
 
-        if len(data) != bits:
-            messagebox.showerror("Hata", f"Lütfen tam olarak {bits} bit girin!\n"
-                                         f"Şu an {len(data)} bit girildi.")
+    def bit_degistiginde(self):
+        """
+        Kullanici bit boyutu secimini degistirdiginde calisir.
+        Giris kutusunu temizler ve sayaci sifirlar.
+        """
+        self.veri_girisi.delete(0, "end")
+        self.uzunluk_etiketi.config(text=f"0/{self.bit_degiskeni.get()}")
+
+
+    def hamming_gostergeyi_temizle(self):
+        """Hamming kodu gosterim alanindaki tum widget'lari siler."""
+        for widget in self.hamming_gosterge.winfo_children():
+            widget.destroy()
+
+
+    def bit_alanini_temizle(self):
+        """Bellek bit butonlarini temizler ve listeyi bosaltir."""
+        for widget in self.bit_alani.winfo_children():
+            widget.destroy()
+        self.bit_butonlari = []
+
+
+    def karsilastirmayi_temizle(self):
+        """Karsilastirma tablosunu temizler."""
+        for widget in self.karsilastirma_alani.winfo_children():
+            widget.destroy()
+
+
+    # ============================================================
+    #   ANA ISLEM FONKSIYONLARI
+    #   Butonlara basildiginda cagirilan ana fonksiyonlar.
+    # ============================================================
+
+    def encode_et(self):
+        """
+        'Encode Et ve Bellege Yaz' butonuna basildiginda calisir.
+
+        1) Kullanicinin girisini kontrol eder
+        2) hamming_encode() ile kodu olusturur
+        3) Renkli kutularda gosterir
+        4) Tıklanabilir bellek butonlarini olusturur
+        """
+        veri = self.veri_girisi.get().strip()
+        beklenen_bit = self.bit_degiskeni.get()
+
+        # Giris kontrolu: dogru uzunlukta mi?
+        if len(veri) != beklenen_bit:
+            messagebox.showerror("Hata",
+                f"Lutfen tam olarak {beklenen_bit} bit girin!\n"
+                f"Su an {len(veri)} bit girildi.")
             return
-        if not all(c in '01' for c in data):
-            messagebox.showerror("Hata", "Sadece 0 ve 1 karakterleri girin!")
+
+        # Giris kontrolu: sadece 0 ve 1 var mi?
+        if not all(c in '01' for c in veri):
+            messagebox.showerror("Hata", "Sadece 0 ve 1 giriniz!")
             return
 
-        self.original_data = data
-        self.memory = encode_hamming(data)
+        # Girisi kaydet
+        self.orijinal_veri = veri
 
-        r = calculate_parity_bits(bits)
-        n = bits + r
-        parity_positions = get_parity_positions(n)
+        # Hamming kodunu hesapla ve bellege yaz
+        self.bellekteki_bitler = hamming_encode(veri)
 
-        self._log(f"Giriş verisi ({bits} bit): {data}")
-        self._log(f"Parity bit sayısı: {r}  |  Toplam bit: {n}")
-        self._log(f"Hamming kodu: {''.join(map(str, self.memory))}")
+        # Bilgi hesapla
+        parity_sayisi = kac_parity_biti_gerekir(beklenen_bit)
+        toplam_bit = beklenen_bit + parity_sayisi
+        parity_pozlar = parity_pozisyonlarini_bul(toplam_bit)
 
-        # Hamming gösterimi (renkli kutular)
-        self._clear_hamming_display()
-        for i, bit in enumerate(self.memory):
-            pos = i + 1
-            is_parity = (pos in parity_positions)
-            bg = self.colors["parity_bg"] if is_parity else self.colors["data_bg"]
+        # Loga yaz
+        self.log_yaz(f"Giris verisi ({beklenen_bit} bit): {veri}")
+        self.log_yaz(f"Parity bit sayisi: {parity_sayisi}  |  Toplam bit: {toplam_bit}")
+        self.log_yaz(f"Hamming kodu: {''.join(map(str, self.bellekteki_bitler))}")
 
-            cell = tk.Frame(self.hamming_display, bg=bg,
-                            relief="solid", bd=1, padx=0, pady=0)
-            cell.pack(side="left", padx=1)
+        # --- Hamming kodu gostergesini olustur ---
+        # Her bit icin renkli bir kutu ciziyor
+        self.hamming_gostergeyi_temizle()
+        for i, bit in enumerate(self.bellekteki_bitler):
+            pozisyon = i + 1
+            parity_mi = (pozisyon in parity_pozlar)
 
-            tk.Label(cell, text=str(pos),
+            # Parity bitleri mor, veri bitleri mavi
+            arka_renk = self.renkler["parity_arka"] if parity_mi else self.renkler["veri_arka"]
+
+            kutu = tk.Frame(self.hamming_gosterge, bg=arka_renk,
+                             relief="solid", bd=1)
+            kutu.pack(side="left", padx=1)
+
+            # Ust kisimda pozisyon numarasi
+            tk.Label(kutu, text=str(pozisyon),
                      font=("Consolas", 7),
-                     fg=self.colors["subtext"], bg=bg).pack()
-            tk.Label(cell, text=str(bit),
+                     fg=self.renkler["alt_yazi"],
+                     bg=arka_renk).pack()
+
+            # Alt kisimda bit degeri
+            tk.Label(kutu, text=str(bit),
                      font=("Consolas", 12, "bold"),
-                     fg=self.colors["green"] if is_parity else self.colors["text"],
-                     bg=bg,
+                     fg=self.renkler["yesil"] if parity_mi else self.renkler["yazi"],
+                     bg=arka_renk,
                      width=2).pack()
 
-        # Tıklanabilir bellek bitleri
-        self._build_memory_bits(parity_positions)
-        self._clear_compare()
-        self.result_label.config(text="Veri encode edildi ve belleğe yazıldı ✓",
-                                 fg=self.colors["green"])
+        # --- Tiklanabilir bellek butonlarini olustur ---
+        self.bellek_bitlerini_olustur(parity_pozlar)
 
-    def _build_memory_bits(self, parity_positions):
-        self._clear_bit_buttons()
-        self.bit_buttons = []
+        # Karsilastirma tablosunu temizle (eski veri kalmasin)
+        self.karsilastirmayi_temizle()
 
-        row0 = tk.Frame(self.bit_frame, bg=self.colors["panel"])
-        row0.pack()
-        row1 = tk.Frame(self.bit_frame, bg=self.colors["panel"])
-        row1.pack()
+        self.sonuc_etiketi.config(
+            text="Veri encode edildi ve bellege yazildi.",
+            fg=self.renkler["yesil"])
 
-        for i, bit in enumerate(self.memory):
-            pos = i + 1
-            is_parity = (pos in parity_positions)
-            bg = self.colors["parity_bg"] if is_parity else self.colors["data_bg"]
 
-            cell = tk.Frame(row1, bg=bg, relief="solid", bd=1)
-            cell.pack(side="left", padx=1, pady=1)
+    def bellek_bitlerini_olustur(self, parity_pozlar):
+        """
+        Bellekteki her bit icin tıklanabilir bir buton olusturur.
+        Butona tıklamak o biti bozar (yapay hata).
+        """
+        self.bit_alanini_temizle()
+        self.bit_butonlari = []
 
-            pos_lbl = tk.Label(row0, text=str(pos),
-                               font=("Consolas", 7),
-                               fg=self.colors["subtext"],
-                               bg=self.colors["panel"], width=3)
-            pos_lbl.pack(side="left", padx=1)
+        # Pozisyon numaralarini gostermek icin ust satir
+        pozisyon_satiri = tk.Frame(self.bit_alani, bg=self.renkler["panel"])
+        pozisyon_satiri.pack()
 
-            btn = tk.Button(cell,
+        # Asıl bit butonlarinin oldugu alt satir
+        buton_satiri = tk.Frame(self.bit_alani, bg=self.renkler["panel"])
+        buton_satiri.pack()
+
+        for i, bit in enumerate(self.bellekteki_bitler):
+            pozisyon = i + 1
+            parity_mi = (pozisyon in parity_pozlar)
+            arka_renk = self.renkler["parity_arka"] if parity_mi else self.renkler["veri_arka"]
+
+            # Pozisyon numarasi etiketi (ust satira)
+            tk.Label(pozisyon_satiri,
+                     text=str(pozisyon),
+                     font=("Consolas", 7),
+                     fg=self.renkler["alt_yazi"],
+                     bg=self.renkler["panel"],
+                     width=3).pack(side="left", padx=1)
+
+            # Bit butonu cercevesi (alt satira)
+            kutu = tk.Frame(buton_satiri, bg=arka_renk, relief="solid", bd=1)
+            kutu.pack(side="left", padx=1, pady=1)
+
+            # Tıklanabilir bit butonu
+            # lambda idx=i: ... ile her buton kendi indeksini biliyor
+            btn = tk.Button(kutu,
                             text=str(bit),
                             font=("Consolas", 11, "bold"),
-                            bg=bg,
-                            fg=self.colors["text"],
+                            bg=arka_renk,
+                            fg=self.renkler["yazi"],
                             relief="flat", bd=0,
                             width=2, height=1,
                             cursor="hand2",
-                            command=lambda idx=i: self._toggle_bit(idx))
+                            command=lambda idx=i: self.biti_boz(idx))
             btn.pack()
-            self.bit_buttons.append(btn)
+            self.bit_butonlari.append(btn)
 
-    # ── BİT TOGGLE (yapay hata) ─────────────
 
-    def _toggle_bit(self, idx):
-        if not self.memory:
+    def biti_boz(self, indeks):
+        """
+        Kullanici bir bit butonuna tıkladiginda calisir.
+        O bitin degerini tersine cevirir (0->1 veya 1->0).
+        Bu, gercek hayatta iletim sirasinda olusan hatayi simule eder.
+        """
+        if not self.bellekteki_bitler:
             return
-        self.memory[idx] ^= 1
-        btn = self.bit_buttons[idx]
-        btn.config(text=str(self.memory[idx]))
 
-        # Orijinal encode ile karşılaştır → hata varsa kırmızı
-        original_hamming = encode_hamming(self.original_data)
-        if self.memory[idx] != original_hamming[idx]:
-            btn.config(bg=self.colors["error_bg"], fg=self.colors["highlight"])
+        # Biti tersine cevir
+        self.bellekteki_bitler[indeks] ^= 1
+
+        # Butonun gosterdigini guncelle
+        buton = self.bit_butonlari[indeks]
+        buton.config(text=str(self.bellekteki_bitler[indeks]))
+
+        # Orijinal hamming kodu ile karsilastir
+        # Eger farkli ise kirmizi yap, orijinaline donduyse rengi geri al
+        orijinal_hamming = hamming_encode(self.orijinal_veri)
+        if self.bellekteki_bitler[indeks] != orijinal_hamming[indeks]:
+            buton.config(bg=self.renkler["hata_arka"], fg=self.renkler["hata_rengi"])
         else:
-            # Orijinaline döndü → rengi sıfırla
-            pos = idx + 1
-            parity_pos = get_parity_positions(len(self.memory))
-            bg = self.colors["parity_bg"] if pos in parity_pos else self.colors["data_bg"]
-            btn.config(bg=bg, fg=self.colors["text"])
+            # Orijinal degerine dondu -> rengi sifirla
+            pozisyon = indeks + 1
+            parity_pozlar = parity_pozisyonlarini_bul(len(self.bellekteki_bitler))
+            arka = self.renkler["parity_arka"] if pozisyon in parity_pozlar else self.renkler["veri_arka"]
+            buton.config(bg=arka, fg=self.renkler["yazi"])
 
-        self._log(f"Bit {idx+1} değiştirildi → yeni değer: {self.memory[idx]}  (yapay hata)")
-        self.result_label.config(text="Bit değiştirildi! Sendromu hesaplayın.",
-                                 fg=self.colors["yellow"])
+        self.log_yaz(f"Bit {indeks+1} degistirildi -> yeni deger: {self.bellekteki_bitler[indeks]}")
+        self.sonuc_etiketi.config(
+            text="Bit bozuldu! Sendromu hesaplayin.",
+            fg=self.renkler["sari"])
 
-    # ── SENDROM HESAPLA ─────────────────────
 
-    def _detect_error(self):
-        if not self.memory:
-            messagebox.showwarning("Uyarı", "Önce veri encode edin!")
+    def hata_tespit_et(self):
+        """
+        'Sendromu Hesapla' butonuna basildiginda calisir.
+
+        Sendrom = tum parity bitlerinin XOR kontrolunun sonucu.
+        Sendrom 0 ise hata yok.
+        Sendrom != 0 ise o pozisyonda hata var.
+        Birden fazla bit bozuksa uyari verir (Hamming sadece 1 biti duzeltebilir).
+        """
+        if not self.bellekteki_bitler:
+            messagebox.showwarning("Uyari", "Once veri encode edin!")
             return
 
-        # Kaç bit bozuldu say
-        original_hamming = encode_hamming(self.original_data)
-        error_count = sum(1 for a, b in zip(self.memory, original_hamming) if a != b)
+        # Kac bit bozuldu? (orijinal ile karsilastir)
+        orijinal_hamming = hamming_encode(self.orijinal_veri)
+        hata_sayisi = sum(1 for a, b in zip(self.bellekteki_bitler, orijinal_hamming) if a != b)
 
-        syndrome = calculate_syndrome(self.memory)
-        self._log(f"Sendrom değeri: {syndrome}")
+        # Sendromu hesapla
+        sendrom = sendrom_hesapla(self.bellekteki_bitler)
+        self.log_yaz(f"Sendrom degeri: {sendrom}")
 
-        # Çoklu hata uyarısı
-        if error_count >= 2:
-            self.result_label.config(
-                text=f"❌ ÇOKLU HATA TESPİT EDİLDİ! ({error_count} bit bozuk)\n"
-                     f"Hamming kodu yalnızca TEK bit hatasını düzeltebilir!\n"
-                     f"Sendrom = {syndrome} ama bu değere güvenilmez.",
-                fg=self.colors["highlight"])
-            self._log(f"UYARI: {error_count} bit aynı anda bozulmuş → düzeltilemez!")
+        # Coklu hata kontrolu
+        if hata_sayisi >= 2:
+            self.sonuc_etiketi.config(
+                text=f"COKLU HATA! ({hata_sayisi} bit bozuk)\n"
+                     f"Hamming kodu yalnizca TEK bit hatasini duzeltebilir!\n"
+                     f"Sendrom = {sendrom} ama bu degere guvenilemez.",
+                fg=self.renkler["hata_rengi"])
+            self.log_yaz(f"UYARI: {hata_sayisi} bit bozulmus -> duzeltilemiyor!")
             return
 
-        if syndrome == 0:
-            self.result_label.config(
-                text="✅ Sendrom = 0  →  Hata YOK! Veri sağlıklı.",
-                fg=self.colors["green"])
-            self._log("Sonuç: Hata tespit edilmedi.")
+        if sendrom == 0:
+            self.sonuc_etiketi.config(
+                text="Sendrom = 0  ->  Hata YOK! Veri saglikli.",
+                fg=self.renkler["yesil"])
+            self.log_yaz("Sonuc: Hata tespit edilmedi.")
         else:
-            self.result_label.config(
-                text=f"⚠️  Sendrom = {syndrome}  →  Bit {syndrome} hatalı!\n"
-                     f"(Pozisyon {syndrome} düzeltilmeyi bekliyor)",
-                fg=self.colors["highlight"])
-            self._log(f"Sonuç: Pozisyon {syndrome} hatalı tespit edildi!")
-            if 0 < syndrome <= len(self.bit_buttons):
-                self.bit_buttons[syndrome - 1].config(
-                    bg=self.colors["error_bg"])
+            self.sonuc_etiketi.config(
+                text=f"Sendrom = {sendrom}  ->  Bit {sendrom} hatali!\n"
+                     f"(Pozisyon {sendrom} duzeltilmeyi bekliyor)",
+                fg=self.renkler["hata_rengi"])
+            self.log_yaz(f"Sonuc: Pozisyon {sendrom} hatali tespit edildi!")
 
-    # ── HATAYI DÜZELT ───────────────────────
+            # Hatali butonu kirmizi yap
+            if 0 < sendrom <= len(self.bit_butonlari):
+                self.bit_butonlari[sendrom - 1].config(bg=self.renkler["hata_arka"])
 
-    def _correct_error(self):
-        if not self.memory:
-            messagebox.showwarning("Uyarı", "Önce veri encode edin!")
+
+    def hatayi_duzelt_ve_goster(self):
+        """
+        'Hatayi Duzelt' butonuna basildiginda calisir.
+
+        1) Sendromu hesapla
+        2) Sendromun gosterdigi pozisyondaki biti duzelt
+        3) Parity bitlerini atarak orijinal veriyi kurtar
+        4) Orijinal veri ile karsilastir
+        """
+        if not self.bellekteki_bitler:
+            messagebox.showwarning("Uyari", "Once veri encode edin!")
             return
 
-        # Çoklu hata varsa düzeltme yapma
-        original_hamming = encode_hamming(self.original_data)
-        error_count = sum(1 for a, b in zip(self.memory, original_hamming) if a != b)
-        if error_count >= 2:
-            messagebox.showerror("Düzeltilemez",
-                                 f"{error_count} bit aynı anda bozuk!\n"
-                                 "Hamming kodu sadece tek bit hatasını düzeltebilir.")
+        # Coklu hata varsa duzeltme yapma
+        orijinal_hamming = hamming_encode(self.orijinal_veri)
+        hata_sayisi = sum(1 for a, b in zip(self.bellekteki_bitler, orijinal_hamming) if a != b)
+
+        if hata_sayisi >= 2:
+            messagebox.showerror("Duzeltilemiyor",
+                f"{hata_sayisi} bit bozuk!\n"
+                "Hamming kodu sadece tek bit hatasini duzeltebilir.")
             return
 
-        syndrome = calculate_syndrome(self.memory)
-        if syndrome == 0:
-            self.result_label.config(
-                text="✅ Düzeltilecek hata yok, veri temiz!",
-                fg=self.colors["green"])
+        sendrom = sendrom_hesapla(self.bellekteki_bitler)
+
+        if sendrom == 0:
+            self.sonuc_etiketi.config(
+                text="Duzeltilecek hata yok, veri temiz!",
+                fg=self.renkler["yesil"])
             return
 
-        self.memory = correct_error(self.memory, syndrome)
+        # Hatali biti duzelt
+        self.bellekteki_bitler = hatayi_duzelt(self.bellekteki_bitler, sendrom)
 
-        # Butonu güncelle
-        btn = self.bit_buttons[syndrome - 1]
-        btn.config(text=str(self.memory[syndrome - 1]))
-        pos = syndrome
-        parity_pos = get_parity_positions(len(self.memory))
-        bg = self.colors["parity_bg"] if pos in parity_pos else self.colors["data_bg"]
-        btn.config(bg=bg, fg=self.colors["text"])
+        # Buton gostergesini guncelle
+        duzeltilen_buton = self.bit_butonlari[sendrom - 1]
+        duzeltilen_buton.config(text=str(self.bellekteki_bitler[sendrom - 1]))
 
-        self._log(f"Pozisyon {syndrome} düzeltildi → bit {self.memory[syndrome-1]} yapıldı")
+        # Rengi normale dondur
+        pozisyon = sendrom
+        parity_pozlar = parity_pozisyonlarini_bul(len(self.bellekteki_bitler))
+        arka = self.renkler["parity_arka"] if pozisyon in parity_pozlar else self.renkler["veri_arka"]
+        duzeltilen_buton.config(bg=arka, fg=self.renkler["yazi"])
 
-        # Düzeltilmiş veriyi çıkar
-        n = len(self.memory)
-        parity_positions = get_parity_positions(n)
-        recovered = [str(self.memory[i])
-                     for i in range(n)
-                     if (i + 1) not in parity_positions]
-        recovered_str = ''.join(recovered)
+        self.log_yaz(f"Pozisyon {sendrom} duzeltildi -> bit {self.bellekteki_bitler[sendrom-1]} yapildi")
 
-        self.result_label.config(
-            text=f"✅ Hata düzeltildi!\n"
-                 f"Orijinal veri : {self.original_data}\n"
-                 f"Kurtarılan    : {recovered_str}\n"
-                 f"Eşleşiyor mu? : {'✔ EVET' if recovered_str == self.original_data else '✘ HAYIR'}",
-            fg=self.colors["green"])
+        # --- Parity bitlerini atarak orijinal veriyi kurtar ---
+        # Sadece parity olmayan pozisyonlardaki bitler gercek veri
+        toplam = len(self.bellekteki_bitler)
+        parity_pozlar = parity_pozisyonlarini_bul(toplam)
+        kurtarilan_bitler = [
+            str(self.bellekteki_bitler[i])
+            for i in range(toplam)
+            if (i + 1) not in parity_pozlar  # parity pozisyonu degilse al
+        ]
+        kurtarilan_veri = ''.join(kurtarilan_bitler)
 
-        self._show_comparison(self.original_data, recovered_str)
+        eslesti_mi = 'EVET' if kurtarilan_veri == self.orijinal_veri else 'HAYIR'
 
-    # ── KARŞILAŞTIRMA TABLOSU ───────────────
+        self.sonuc_etiketi.config(
+            text=f"Hata duzeltildi!\n"
+                 f"Orijinal veri  : {self.orijinal_veri}\n"
+                 f"Kurtarilan     : {kurtarilan_veri}\n"
+                 f"Eslesme        : {eslesti_mi}",
+            fg=self.renkler["yesil"])
 
-    def _show_comparison(self, original, recovered):
-        self._clear_compare()
+        # Karsilastirma tablosunu goster
+        self.karsilastirma_goster(self.orijinal_veri, kurtarilan_veri)
 
-        headers = ["", "Veri"]
-        rows = [("Orijinal", original), ("Kurtarılan", recovered)]
 
-        for col, h in enumerate(headers):
-            tk.Label(self.compare_frame, text=h,
+    def karsilastirma_goster(self, orijinal, kurtarilan):
+        """
+        Orijinal veri ile kurtarilan veriyi yan yana tablo olarak gosterir.
+        Eslesen bitler yesil, farkli bitler kirmizi gosterilir.
+        """
+        self.karsilastirmayi_temizle()
+
+        # Tablo basliklari
+        for sutun, baslik in enumerate(["", "Veri"]):
+            tk.Label(self.karsilastirma_alani,
+                     text=baslik,
                      font=("Consolas", 9, "bold"),
-                     fg=self.colors["yellow"],
-                     bg=self.colors["panel"]).grid(
-                         row=0, column=col, padx=4, pady=2)
+                     fg=self.renkler["sari"],
+                     bg=self.renkler["panel"]).grid(row=0, column=sutun, padx=4, pady=2)
 
-        for row_i, (label, data) in enumerate(rows, start=1):
-            tk.Label(self.compare_frame, text=label,
+        # Tablo satirlari
+        for satir_no, (etiket, veri) in enumerate([("Orijinal", orijinal),
+                                                    ("Kurtarilan", kurtarilan)],
+                                                   start=1):
+            tk.Label(self.karsilastirma_alani,
+                     text=etiket,
                      font=("Consolas", 9),
-                     fg=self.colors["subtext"],
-                     bg=self.colors["panel"]).grid(
-                         row=row_i, column=0, padx=4, pady=1)
+                     fg=self.renkler["alt_yazi"],
+                     bg=self.renkler["panel"]).grid(row=satir_no, column=0, padx=4, pady=1)
 
-            bit_frame = tk.Frame(self.compare_frame, bg=self.colors["panel"])
-            bit_frame.grid(row=row_i, column=1, padx=4, pady=1)
+            # Bitleri tek tek goster, yesil=eslesir, kirmizi=farkli
+            bit_satiri = tk.Frame(self.karsilastirma_alani, bg=self.renkler["panel"])
+            bit_satiri.grid(row=satir_no, column=1, padx=4, pady=1)
 
-            for i, bit in enumerate(data):
-                match = (len(original) > i and original[i] == bit)
-                fg = self.colors["green"] if match else self.colors["highlight"]
-                tk.Label(bit_frame, text=bit,
+            for i, bit in enumerate(veri):
+                esleşiyor = (len(orijinal) > i and orijinal[i] == bit)
+                renk = self.renkler["yesil"] if esleşiyor else self.renkler["hata_rengi"]
+                tk.Label(bit_satiri,
+                         text=bit,
                          font=("Consolas", 10, "bold"),
-                         fg=fg,
-                         bg=self.colors["panel"]).pack(side="left", padx=1)
+                         fg=renk,
+                         bg=self.renkler["panel"]).pack(side="left", padx=1)
 
 
-    # ── PARITY ADIM ADIM PENCERESİ ──────────
+    # ============================================================
+    #   PARITY ADIM ADIM PENCERESI
+    #   Her parity bitinin nasil hesaplandigi burada gosterilir.
+    # ============================================================
 
-    def _show_parity_steps(self):
-        if not self.memory:
-            messagebox.showwarning("Uyarı", "Önce veri encode edin!")
+    def parity_adimlarini_goster(self):
+        """
+        Ayri bir pencere acar ve her parity bitinin hesaplanma adimlarini
+        XOR zincirleri ile gosterir.
+
+        Ornek cikti:
+          P1 -> Pozisyon 1 (2^0) Parity Biti
+          Hangi bitlere bakiyor? [1]=0  [3]=1  [5]=0  ...
+          XOR zinciri: 0 xor 1 xor 0 = 1
+          P1 = 1 -> Bu parity biti HATALI
+        """
+        if not self.bellekteki_bitler:
+            messagebox.showwarning("Uyari", "Once veri encode edin!")
             return
 
-        n = len(self.memory)
-        r = calculate_parity_bits(len(self.original_data))
+        toplam = len(self.bellekteki_bitler)
+        parity_sayisi = kac_parity_biti_gerekir(len(self.orijinal_veri))
 
-        win = tk.Toplevel(self.root)
-        win.title("Parity Bit Hesaplama Adımları")
-        win.geometry("620x500")
-        win.configure(bg=self.colors["bg"])
+        # --- Yeni pencere olustur ---
+        pencere = tk.Toplevel(self.pencere)
+        pencere.title("Parity Bit Hesaplama Adimlari")
+        pencere.geometry("620x500")
+        pencere.configure(bg=self.renkler["arkaplan"])
 
-        tk.Label(win,
-                 text="🔎 Parity Bit Hesaplama Adımları",
+        tk.Label(pencere,
+                 text="Parity Bit Hesaplama Adimlari",
                  font=("Consolas", 13, "bold"),
-                 fg=self.colors["yellow"],
-                 bg=self.colors["bg"]).pack(pady=(14, 4))
+                 fg=self.renkler["sari"],
+                 bg=self.renkler["arkaplan"]).pack(pady=(14, 4))
 
-        tk.Label(win,
-                 text=f"Hamming kodu: {''.join(map(str, self.memory))}   "
-                      f"(toplam {n} bit, {r} parity biti)",
+        tk.Label(pencere,
+                 text=f"Hamming kodu: {''.join(map(str, self.bellekteki_bitler))}   "
+                      f"(toplam {toplam} bit, {parity_sayisi} parity biti)",
                  font=("Consolas", 10),
-                 fg=self.colors["subtext"],
-                 bg=self.colors["bg"]).pack(pady=(0, 8))
+                 fg=self.renkler["alt_yazi"],
+                 bg=self.renkler["arkaplan"]).pack(pady=(0, 8))
 
-        frame = tk.Frame(win, bg=self.colors["bg"])
-        frame.pack(fill="both", expand=True, padx=16, pady=4)
+        # Kaydirmali metin alani
+        cerceve = tk.Frame(pencere, bg=self.renkler["arkaplan"])
+        cerceve.pack(fill="both", expand=True, padx=16, pady=4)
 
-        scrollbar = tk.Scrollbar(frame)
-        scrollbar.pack(side="right", fill="y")
+        kaydirma = tk.Scrollbar(cerceve)
+        kaydirma.pack(side="right", fill="y")
 
-        text = tk.Text(frame,
-                       font=("Consolas", 10),
-                       bg=self.colors["accent"],
-                       fg=self.colors["text"],
-                       relief="flat", bd=4,
-                       yscrollcommand=scrollbar.set)
-        text.pack(fill="both", expand=True)
-        scrollbar.config(command=text.yview)
+        metin = tk.Text(cerceve,
+                        font=("Consolas", 10),
+                        bg=self.renkler["vurgu"],
+                        fg=self.renkler["yazi"],
+                        relief="flat", bd=4,
+                        yscrollcommand=kaydirma.set)
+        metin.pack(fill="both", expand=True)
+        kaydirma.config(command=metin.yview)
 
-        for i in range(r):
-            pos = 2 ** i
-            text.insert("end", f"{'='*50}\n", "header")
-            text.insert("end", f"  P{pos}  →  Pozisyon {pos} (2^{i}) Parity Biti\n", "parity")
-            text.insert("end", f"{'='*50}\n", "header")
-            text.insert("end", f"  Hangi bitlere bakıyor? (pozisyon & {pos} != 0 olanlar)\n\n", "info")
+        # Her parity biti icin adim adim hesaplama yaz
+        for i in range(parity_sayisi):
+            parity_pos = 2 ** i  # 1, 2, 4, 8, ...
 
-            covered = [k for k in range(1, n + 1) if k & pos]
+            metin.insert("end", f"{'='*50}\n", "baslik")
+            metin.insert("end", f"  P{parity_pos}  ->  Pozisyon {parity_pos} (2^{i}) Parity Biti\n", "parity")
+            metin.insert("end", f"{'='*50}\n", "baslik")
+            metin.insert("end", f"  Hangi bitlere bakiyor? (pozisyon AND {parity_pos} != 0 olanlar)\n\n", "bilgi")
 
-            line = "  Pozisyonlar: "
-            for k in covered:
-                line += f"[{k}]={self.memory[k-1]}  "
-            text.insert("end", line + "\n\n", "bits")
+            # Bu parity bitinin sorumlu oldugu pozisyonlar
+            sorumlu_pozlar = [k for k in range(1, toplam + 1) if k & parity_pos]
 
-            xor_line = "  XOR zinciri: "
-            result = 0
-            for k in covered:
-                result ^= self.memory[k - 1]
-                xor_line += str(self.memory[k-1])
-                if k != covered[-1]:
-                    xor_line += " xor "
-            xor_line += f" = {result}"
-            text.insert("end", xor_line + "\n\n", "xor")
+            # Pozisyon ve degerleri listele
+            satir = "  Pozisyonlar: "
+            for k in sorumlu_pozlar:
+                satir += f"[{k}]={self.bellekteki_bitler[k-1]}  "
+            metin.insert("end", satir + "\n\n", "bitler")
 
-            if result == 0:
-                text.insert("end", f"  OK  P{pos} = {result}  Bu parity biti DOGRU\n\n", "ok")
+            # XOR zinciri hesapla ve yaz
+            xor_satir = "  XOR zinciri: "
+            sonuc = 0
+            for k in sorumlu_pozlar:
+                sonuc ^= self.bellekteki_bitler[k - 1]
+                xor_satir += str(self.bellekteki_bitler[k-1])
+                if k != sorumlu_pozlar[-1]:
+                    xor_satir += " xor "
+            xor_satir += f" = {sonuc}"
+            metin.insert("end", xor_satir + "\n\n", "xor")
+
+            # Sonuc: dogru mu yoksa hatali mi?
+            if sonuc == 0:
+                metin.insert("end", f"  TAMAM  P{parity_pos} = {sonuc}  -> Parity biti DOGRU\n\n", "tamam")
             else:
-                text.insert("end", f"  !!  P{pos} = {result}  Bu parity biti HATALI\n\n", "err")
+                metin.insert("end", f"  HATA   P{parity_pos} = {sonuc}  -> Parity biti HATALI\n\n", "hata")
 
-        syndrome = calculate_syndrome(self.memory)
-        text.insert("end", f"{'='*50}\n", "header")
-        text.insert("end", f"  SENDROM SONUCU = {syndrome}\n", "parity")
-        if syndrome == 0:
-            text.insert("end", "  Hata yok!\n", "ok")
+        # Genel sendrom sonucu
+        sendrom = sendrom_hesapla(self.bellekteki_bitler)
+        metin.insert("end", f"{'='*50}\n", "baslik")
+        metin.insert("end", f"  SENDROM SONUCU = {sendrom}\n", "parity")
+        if sendrom == 0:
+            metin.insert("end", "  -> Hata yok!\n", "tamam")
         else:
-            text.insert("end", f"  Hatali bit pozisyonu: {syndrome}\n", "err")
-        text.insert("end", f"{'='*50}\n", "header")
+            metin.insert("end", f"  -> Hatali bit pozisyonu: {sendrom}\n", "hata")
+        metin.insert("end", f"{'='*50}\n", "baslik")
 
-        text.tag_config("header", foreground=self.colors["subtext"])
-        text.tag_config("parity", foreground=self.colors["yellow"],
-                        font=("Consolas", 10, "bold"))
-        text.tag_config("info",   foreground=self.colors["subtext"])
-        text.tag_config("bits",   foreground=self.colors["text"])
-        text.tag_config("xor",    foreground=self.colors["green"])
-        text.tag_config("ok",     foreground=self.colors["green"])
-        text.tag_config("err",    foreground=self.colors["highlight"])
-        text.configure(state="disabled")
+        # Renk tagimlari
+        metin.tag_config("baslik",  foreground=self.renkler["alt_yazi"])
+        metin.tag_config("parity",  foreground=self.renkler["sari"],
+                         font=("Consolas", 10, "bold"))
+        metin.tag_config("bilgi",   foreground=self.renkler["alt_yazi"])
+        metin.tag_config("bitler",  foreground=self.renkler["yazi"])
+        metin.tag_config("xor",     foreground=self.renkler["yesil"])
+        metin.tag_config("tamam",   foreground=self.renkler["yesil"])
+        metin.tag_config("hata",    foreground=self.renkler["hata_rengi"])
+        metin.configure(state="disabled")  # kullanici degistiremesin
 
 
-# ─────────────────────────────────────────
-#  ÇALIŞTIR
-# ─────────────────────────────────────────
+# ============================================================
+#   PROGRAMI BASLAT
+#   Bu dosya dogrudan calistirilirsa buradan baslar.
+# ============================================================
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = HammingSimulator(root)
-    root.mainloop()
+    ana_pencere = tk.Tk()
+    uygulama = HammingSimulatoru(ana_pencere)
+    ana_pencere.mainloop()   # pencere kapanana kadar calis
