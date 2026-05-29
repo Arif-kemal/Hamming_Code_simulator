@@ -7,6 +7,8 @@ from tkinter import messagebox
 #   Sadece matematiksel hesaplamalar var.
 # ============================================================
 
+
+
 def kac_parity_biti_gerekir(veri_bit_sayisi):
     """
     Verilen veri bit sayisi icin kac tane parity (kontrol) biti
@@ -37,6 +39,8 @@ def parity_pozisyonlarini_bul(toplam_bit_sayisi):
         pozisyonlar.append(i)
         i *= 2  # her seferinde 2 ile carp: 1->2->4->8->...
     return pozisyonlar
+
+
 
 
 def hamming_encode(veri_bitleri):
@@ -86,6 +90,8 @@ def hamming_encode(veri_bitleri):
 
     # Index 0'i atarak 1'den itibaren dondur
     return hamming_dizisi[1:]
+
+
 
 
 def sendrom_hesapla(alinan_bitler):
