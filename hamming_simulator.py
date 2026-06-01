@@ -115,7 +115,7 @@ def sendrom_hesapla(alinan_bitler):
 
     sendrom = 0
     for i in range(r):
-        parity_pos = 2 ** i  # 1, 2, 4, 8, ...
+        parity_pos = 2 ** i  # 1, 2, 4, 16 ...
 
         xor_sonucu = 0
         for k in range(1, toplam_uzunluk + 1):
