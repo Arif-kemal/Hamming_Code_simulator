@@ -129,6 +129,11 @@ def sendrom_hesapla(alinan_bitler):
     return sendrom  # 0 ise hata yok, diger degerler hatanin pozisyonunu gosterir
 
 
+
+
+
+
+
 def hatayi_duzelt(bitler, hatali_pozisyon):
     """
     Verilen pozisyondaki biti tersine cevirir (0->1 veya 1->0).
