@@ -132,7 +132,7 @@ python3 hamming_simulator.py
 ```
 hamming-simulator/
 │
-└── hamming_simulator.py    # Ana uygulama (tek dosya)
+└── hamming_simulator.py    # Ana uygulama
 ```
 
 ---
